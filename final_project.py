@@ -172,18 +172,18 @@ class BayesLoc:
 
 
     # we execute this once we're at an office and don't get to until we reach another office
-    def at_an_office(self):
-        a = 5
-        # so let's assume we made it to an office
-        # we can take measurements until we're sure what colour we're on
-        g = np.array([0, 0, 0, 0])
-        while g[0] < a and g[1] < a and g[2] < a and g[3] < a:
-            ind = self.guess_colour()
-            if ind != 4:
-                g[ind] += 1
+    def at_an_office(self, colour):
+        # a = 5
+        # # so let's assume we made it to an office
+        # # we can take measurements until we're sure what colour we're on
+        # g = np.array([0, 0, 0, 0])
+        # while g[0] < a and g[1] < a and g[2] < a and g[3] < a:
+        #     ind = self.guess_colour()
+        #     if ind != 4:
+        #         g[ind] += 1
 
-        # exiting that loop there should be one index that pretty high
-        colour = np.argmax(g)
+        # # exiting that loop there should be one index that pretty high
+        # colour = np.argmax(g)
 
         # then we do a step of bayesian localisation
         # but like really only the update step because we know the robot will move forwards?
@@ -267,19 +267,30 @@ class BayesLoc:
         
         # rospy.loginfo(self.line_check)
 
-
-        # if self.line == False:
-        #     # we could have just reached it
-        #     if self.one_office == False:
-        #         self.at_an_office()
-        #         self.one_office = True
-        #         self.decide_if_at_a_room()
-        #     # but we could've already been at an office, in which case we're not updating again
-        #     else: 
-        #         pass
-        # # we're still on the path, so not at an office
-        # elif self.line == True:
-        #     self.one_office = False
+        # we've entered an office
+        if self.line == False:
+            # we are now at an office just reached it
+            if self.one_office == False:
+                self.one_office = True
+                # empty array to store the colour readings over the entire office
+                recorded_vals = []
+            # we are still in the office, append the new guess
+            else:
+                recorded_vals.append(self.guess_colour())
+        # we're still on the path, so not at an office
+        elif self.line == True and self.one_office == True:
+            # only store the first and last 4 readings
+            recorded_vals = recorded_vals[0:4] + recorded_vals[len(recorded_vals) - 4:]
+            # average the probabilities for each colour over all guesses
+            avg_vals = []
+            for guess in recorded_vals:
+                for i in range(len(guess)):
+                    avg_vals[i] += guess[i] / 4
+            colour = avg_vals.index(max(avg_vals))
+            self.at_an_office(colour)
+            self.decide_if_at_a_room()
+            self.one_office = False
+        # final case of we're not in an office, but we haven't just come out of one = do nothing
         
         self.good_pid_control()
         return
@@ -414,47 +425,51 @@ class BayesLoc:
 
     # figures how "close" two rgb values are based on tolerances
     def close(self, x, y, tol):
-        x_sum = sum(x)
-        y_sum = sum(y)
+        # x_sum = sum(x)
+        # y_sum = sum(y)
         # yy = [y[0]*x_sum/y_sum, y[1]*x_sum/y_sum, y[2]*x_sum/y_sum]
         # val = [abs(x[0]-yy[0]), abs(x[1]-yy[1]), abs(x[2]-yy[2])]
-        val = [abs(x[0]-y[0]), abs(x[1]-y[1]), abs(x[2]-y[2])]
-        summ = sum(val)
-        if val[0] < tol:
-            if val[1] < tol:
-                if val[2] < tol:
-                    return [summ, True]
+        # val = [abs(x[0]-y[0]), abs(x[1]-y[1]), abs(x[2]-y[2])]
+        # summ = sum(val)
+        # if val[0] < tol:
+        #     if val[1] < tol:
+        #         if val[2] < tol:
+        #             return [summ, True]
         # if summ < tol:
         #     return [summ, True]
-        return [summ, False]
+        # return [summ, False]
+        
+        # calcuale the euclidean of the detected colour to the target colour
+        eucl_dist = math.sqrt((x[0]-y[0])**2 + (x[1]-y[1])**2 + (x[2]-y[2])**2)
+        return eucl_dist
 
     # now we need a function to look at an rgb value 
     # and if it's not close enough to anything we return "nothing"
     # and ideally it's close to closing or its the floor...
     def guess_colour(self):
 
-        rgb = self.measuring
-        colours = self.colour_map_scheme
+        # rgb = self.measuring
+        # colours = self.colour_map_scheme
 
         # checks the distances to every colour using tolerance
-        tol = 30
-        vals = []
-        ok = []
-        for colour in colours:
-            out = self.close(rgb, colour, tol)
-            vals.append(out[0])
-            ok.append(out[1])
-        
+        # tol = 30
+        # vals = []
+        # ok = []
+        # for colour in colours:
+        #     out = self.close(rgb, colour, tol)
+        #     vals.append(out[0])
+        #     ok.append(out[1])
+
         # now we go through and find the True with the smallest sum
-        smallest_sum = 1000
-        ind = -1
-        for i in range(len(colours)):
-            if ok[i] == True and vals[i] < smallest_sum:
-                smallest_sum = vals[i]
-                ind = i
-        # nothing case
-        if ind == -1:
-            ind = 4
+        # smallest_sum = 1000
+        # ind = -1
+        # for i in range(len(colours)):
+        #     if ok[i] == True and vals[i] < smallest_sum:
+        #         smallest_sum = vals[i]
+        #         ind = i
+        # # nothing case
+        # if ind == -1:
+        #     ind = 4
         
         # # the rest is just for debugging and looking
         # if ind == 0:
@@ -472,9 +487,38 @@ class BayesLoc:
         # full = np.array([[colours[0], colours[1], colours[2], colours[3], rgb]])
         # self.printer(full)
 
+        # self.colour_guess = ind
+
+        # return ind
+
+        # checks the distances to every colour (tol doesn't do anything right now)
+
+        rgb = self.measuring
+        colours = self.colour_map_scheme
+
+        tol = 30
+        vals = []
+        for colour in colours:
+            out = self.close(rgb, colour, tol)
+            vals.append(out)
+            total += out
+        total = 0
+
+        # inverse each value such that colours with smaller distances have higher weights
+        for i in range(len(vals)):
+            vals[i] = 1/vals[i]
+            total += vals[i]
+
+        # normalize the results so that they add to 1
+        for i in range(len(vals)):
+            vals[i] /= total
+
+        # just to make other things still work
+        ind = vals.index(max(vals))
         self.colour_guess = ind
 
-        return ind
+        return vals
+
 
     
 
